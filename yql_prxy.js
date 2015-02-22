@@ -155,6 +155,9 @@ var prxy = (function() {
 		}
 		return rslt;
 	};
+	prxy.prototype._es_url = function(url) {
+		return url.replace(/ /g, '%20');
+	};
 	prxy.prototype._parse_url = function(url, base_url) {
 		var _a = new URL(url, base_url);
 		return {url: _a.href, hostname: _a.hostname, pathname: _a.pathname};
@@ -164,7 +167,7 @@ var prxy = (function() {
 	};
 	prxy.prototype._get_html = function(url, cb, retry) {
 		if(!retry) retry = 0;
-		this.yql.exchtml(url, this._html_hndl.bind(this, url, cb, retry));
+		this.yql.exchtml(this._es_url(url), this._html_hndl.bind(this, url, cb, retry));
 	};
 	prxy.prototype._html_hndl = function(url, cb, retry, yql_rslt) {
 		var html_raw = yql_rslt.childNodes[0].childNodes[1].childNodes[0];
@@ -180,7 +183,7 @@ var prxy = (function() {
 	};
 	prxy.prototype._get_text = function(url, cb, retry) {
 		if(!retry) retry = 0;
-		this.yql.exc(this._text_hndl.bind(this, url, cb, retry), this._text_srv, url);
+		this.yql.exc(this._text_hndl.bind(this, url, cb, retry), this._text_srv, this._es_url(url));
 	};
 	prxy.prototype._text_srv = function() {
 		response.object =y.rest('arg0').get().response;
@@ -416,5 +419,3 @@ var _PXY = new prxy_menu();
 $px(document).ready(function() {
 	_PXY.reload();
 });
-
-
