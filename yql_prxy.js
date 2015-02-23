@@ -139,6 +139,9 @@ var yql = (function() {
 	yql.prototype.exchtml = function(url, cb) {
 		this.get(this.excurl('select * from html where xpath="/html" and url="' + url +'"', 'xml'), 'xml', cb);
 	}
+	yql.prototype.exchtmlraw = function(url, cb) {
+		this.get(this.excurl('select content from data.headers where url="' + url +'"', 'json'), 'json', cb);
+	}
 	return yql;
 })();
 
@@ -167,7 +170,7 @@ var prxy = (function() {
 	};
 	prxy.prototype._get_html = function(url, cb, retry) {
 		if(!retry) retry = 0;
-		this.yql.exchtml(this._es_url(url), this._html_hndl.bind(this, url, cb, retry));
+		this.yql.exchtmlraw(this._es_url(url), this._htmlraw_hndl.bind(this, url, cb, retry));
 	};
 	prxy.prototype._html_hndl = function(url, cb, retry, yql_rslt) {
 		var html_raw = yql_rslt.childNodes[0].childNodes[1].childNodes[0];
@@ -179,6 +182,25 @@ var prxy = (function() {
 			}
 		};
 		var html = $px(html_raw);//.remove();
+		if(cb) cb(url, html);
+	};
+	prxy.prototype._htmlraw_hndl = function(url, cb, retry, yql_rslt) {
+		var html_raw = yql_rslt.query.results.resources.content;
+		if(!html_raw) {
+			if(retry > 5) {
+				throw 'No result.';
+			} else {
+				return this._get_html(url, cb, retry + 1);
+			}
+		};
+		//var dom = document.implementation.createDocument('', 'html', document.implementation.createDocumentType( 'html', '', ''));
+		//var dom = document.implementation.createHTMLDocument();
+		//var html = $px.parseHTML(html_raw, dom, false);
+		//var html = $px.parseXML(html_raw);
+		//var html = $px(html_raw, dom);
+		var parser = new DOMParser();
+		var dom = parser.parseFromString(html_raw, "text/html");
+		var html = $px('html', dom);
 		if(cb) cb(url, html);
 	};
 	prxy.prototype._get_text = function(url, cb, retry) {
@@ -265,8 +287,8 @@ var prxy = (function() {
 		   Without this remove,
 		   all scripts in this tree will be set has-executed,
 		   extra execute machism in jquery will never be valid*/
-		html.remove();
-		$px('link', html).error({this: this}, this._link_reload);//.load(function(){console.log('load:', this);});
+		//html.remove();
+		$px('link', html).error({this: this}, this._link_reload).load(function(){console.log('load:', this);});
 		//$px('script', html).error({url: url}, this._script_reload).load(function(){console.log('load:', this);});
 		//$px('script', html).replaceWith(function() {
 		//	/* Each script tag only execute once.
