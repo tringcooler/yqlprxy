@@ -243,14 +243,15 @@ var prxy = (function() {
 		response.object =y.rest('arg0').get().response;
 	};
 	prxy.prototype._text_hndl = function(url, cb, retry, yql_rslt) {
-		var text_raw = yql_rslt.query.results.result;
-		if(!text_raw) {
+		var text_raw = yql_rslt.query.results;
+		if(!text_raw || !text_raw.result) {
 			if(retry > 5) {
 				throw 'No result.';
 			} else {
-				return this._get_html(url, cb, retry + 1);
+				return this._get_text(url, cb, retry + 1);
 			}
 		};
+		text_raw = text_raw.result;
 		if(cb) cb(url, text_raw);
 	};
 	prxy.prototype._get_image = function(url, cb, errcb) {
