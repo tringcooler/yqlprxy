@@ -3,6 +3,16 @@ Authorization: Client-ID YOUR_CLIENT_ID
 prxy01 111111
 109d10abeac9fd3
 56aacb3485800ce88abfef213bfece615ea2cdd8
+8fec560c1586e93
+25f1cbff6c3bbee3d158b59b4372af26ad51224b
+
+prxy03 111111
+c8ad8306adb4caf
+bfee854b0027943b63ee7b68ee6fbbfc074d8362
+
+prxy04 111111
+181046d30c694d4
+be8b554c48f0a41959a28f8c85e44808ae07650b
 */
 
 $px = $.noConflict();
@@ -25,17 +35,20 @@ var __extends = this.__extends || function (d, b) {
 };
 
 var imgur = (function() {
-	function imgur() {}
+	function imgur(force_auth) {
+		if(force_auth == undefined) force_auth = true
+		this.force_auth = force_auth;
+	}
 	imgur.prototype._auth = function(cb) {
 		$px.ajax({
 			type: 'POST',
 			url: 'https://api.imgur.com/oauth2/token',
 			dataType: 'json',
 			data: {
-				client_id: '109d10abeac9fd3',
-				client_secret: '56aacb3485800ce88abfef213bfece615ea2cdd8',
+				client_id: '181046d30c694d4',
+				client_secret: 'be8b554c48f0a41959a28f8c85e44808ae07650b',
 				grant_type: 'password',
-				username: 'prxy01',
+				username: 'prxy04',
 				password: '111111',
 			},
 			success: (function(data) {
@@ -46,6 +59,7 @@ var imgur = (function() {
 	};
 	imgur.prototype._check = function(args) {
 		if(!this.token) {
+			if(this.force_auth) throw 'Imgur need auth first.'
 			var func = args.callee;
 			var cb = func.bind.apply(func, Array.prototype.concat.apply([this], args));
 			this._auth(cb);
@@ -57,8 +71,10 @@ var imgur = (function() {
 			xhr.setRequestHeader("Authorization", "Bearer " +  this.token);
 		}
 	};
-	imgur.prototype.update = function(url, cb) {
+	imgur.prototype.update = function(url, cb, errcb, retry) {
 		if(this._check(arguments)) return;
+		if(!retry) retry = 0;
+		console.log('imgur update', url);
 		$px.ajax({
 			type: 'POST',
 			url: 'https://api.imgur.com/3/image',
@@ -68,14 +84,25 @@ var imgur = (function() {
 				type: 'URL',
 			},
 			beforeSend : this._authhead.bind(this),
-			success: this._update_hndl.bind(this, cb),
+			success: this._update_hndl.bind(this, url, cb, errcb, retry),
+			error: errcb,
 		});
 	};
-	imgur.prototype._update_hndl = function(cb, data) {
+	imgur.prototype._update_hndl = function(url, cb, errcb, retry, data) {
 		if(data.success) {
+			if(data.data == null) {
+				if(retry > 5) {
+					throw 'Imgur update unknown success.'
+				} else {
+					return this.update(url, cb, errcb, retry + 1);
+				}
+			}
 			var img_id = data.data.id;
-			var img_url = data.data.link;
+			var img_url = data.data.link.replace(/http:\/\//, 'https://');
+			console.log('imgur get', img_url);
 			if(cb) cb(img_id, img_url);
+		} else {
+			throw 'Imgur update faild.'
 		}
 	};
 	imgur.prototype.del = function(id) {
@@ -146,9 +173,13 @@ var yql = (function() {
 })();
 
 var prxy = (function() {
-	function prxy() {
+	function prxy(force_replace) {
 		this.yql = new yql();
 		this.imgur = new imgur();
+		if(!force_replace) force_replace = false;
+		this._flag_force_replace = force_replace;
+		this._flag_imgur_timeout = false;
+		this._img_lib = {};
 	}
 	prxy.prototype._encode_url = function(url) {
 		var rslt = ''
@@ -204,6 +235,7 @@ var prxy = (function() {
 		if(cb) cb(url, html);
 	};
 	prxy.prototype._get_text = function(url, cb, retry) {
+		if(!url) throw 'err_get_text: empty url.'
 		if(!retry) retry = 0;
 		this.yql.exc(this._text_hndl.bind(this, url, cb, retry), this._text_srv, this._es_url(url));
 	};
@@ -221,24 +253,41 @@ var prxy = (function() {
 		};
 		if(cb) cb(url, text_raw);
 	};
-	prxy.prototype._get_image = function(url, cb) {
-		this.imgur.update(url, this._image_hndl.bind(this, url, cb));
+	prxy.prototype._get_image = function(url, cb, errcb) {
+		this.imgur.update(url, this._image_hndl.bind(this, url, cb, errcb), errcb);
 	};
-	prxy.prototype._image_hndl = function(url, cb, img_id, img_url) {
-		this._image2dataurl(img_url, this._dataurl_hndl.bind(this, url, cb, img_id));
+	prxy.prototype._image_hndl = function(url, cb, errcb, img_id, img_url) {
+		this._image2dataurl(img_url, this._dataurl_hndl.bind(this, url, cb, img_id), errcb/* this._get_image.bind(this, url, cb, errcb) */);
 	};
-	prxy.prototype._image2dataurl = function(url, cb) {
+	prxy.prototype._image2dataurl = function(url, cb, errhndl, retry) {
+		if(!retry) retry = 0;
 		var img = new Image();
 		img.onload = function() {
+			if(to != null) clearTimeout(to);
 			var canv = document.createElement('canvas');
 			canv.width = img.width;
 			canv.height = img.height;
 			var ctx = canv.getContext('2d');
 			ctx.drawImage(img, 0, 0);
 			var dataurl = canv.toDataURL('image/png');
-			if(cb) cb(dataurl)
+			if(cb) cb(dataurl);
 		};
+		var _err = (function() {
+			if(to != null) clearTimeout(to);
+			if(retry > 5) {
+				if(errhndl) errhndl();
+			} else {
+				setTimeout(this._image2dataurl.bind(this, url, cb, errhndl, retry + 1));
+			}
+		}).bind(this);
+		img.onerror = _err;
 		img.setAttribute('crossOrigin', 'anonymous');
+		var to = this._flag_imgur_timeout ? setTimeout(function() {
+			img.src = '';
+			console.log('Imagedata timeout.', url);
+			/* canceling trig error handle */
+			//_err();
+		}, 5000) : null;
 		img.src = url;
 	};
 	prxy.prototype._dataurl_hndl = function(url, cb, img_id, dataurl) {
@@ -248,10 +297,88 @@ var prxy = (function() {
 	prxy.prototype._preload_imgur = function(continue_cb, url, html) {
 		this.imgur._auth(continue_cb.bind(this, url, html));
 	};
-	prxy.prototype._preload_script = function(continue_cb, elm, url, html) {
+	prxy.prototype._preproc_html = function(continue_cb, elm, url, html) {
 		$px('head', html).prepend($px('<base>').attr('href', url).attr('id', '_prxy_base'));
+		if(this._flag_force_replace) {
+
+			/*$px('script[src]', html).each((function(idx, elm) {
+				this._script_reload(elm);
+			}).bind(this));
+			$px('link[href][rel=stylesheet]', html).each((function(idx, elm) {
+				this._link_reload.call(elm, {data:{this: this}});
+			}).bind(this));
+			$px('img[src]', html).each((function(idx, elm) {
+				this._img_reload.call(elm, {data:{this: this}});
+			}).bind(this));
+			if(continue_cb) continue_cb.call(this, elm, url, html);*/
+			this._preproc_script_hndl($px('script[src]', html), 0,
+			this._preproc_link_hndl.bind(this, $px('link[href][rel=stylesheet]', html), 0,
+			this._preproc_image_hndl.bind(this, $px('img[src]', html), 0,
+			continue_cb.bind(this, elm, url, html))));
+		} else {
+			this._preload_script(continue_cb, elm, url, html);
+		}
+	};
+	prxy.prototype._preproc_script_hndl = function(elms, idx, continue_cb) {
+		if(idx < elms.length) {
+			elm = elms[idx];
+			this._get_text(elm.src, (function(url, raw) {
+				elm.innerHTML = raw;
+				this._preproc_script_hndl(elms, idx + 1, continue_cb);
+			}).bind(this));
+			elm.setAttribute('old_src', elm.src);
+			elm.removeAttribute('src');
+		} else {
+			if(continue_cb) continue_cb();
+		}
+	};
+	prxy.prototype._preproc_link_hndl = function(elms, idx, continue_cb) {
+		if(idx < elms.length) {
+			elm = elms[idx];
+			this._get_text(elm.href, (function(url, raw) {
+				$px(elm).replaceWith($px('<style>').attr('old_href', url).html(raw));
+				this._preproc_link_hndl(elms, idx + 1, continue_cb);
+			}).bind(this));
+		} else {
+			if(continue_cb) continue_cb();
+		}
+	};
+	prxy.prototype._preproc_image_hndl = function(elms, idx, continue_cb) {
+		if(idx < elms.length) {
+			elm = elms[idx];
+			var imglib = this._img_lib;
+			if(elm.src in imglib) {
+				elm.setAttribute('src', imglib[elm.src].dataurl);
+				elm.setAttribute('old_src', elm.src);
+				this._preproc_image_hndl(elms, idx + 1, continue_cb);
+			} else {
+				imglib[elm.src] = {};
+				this._get_image(elm.src, (function(url, dataurl) {
+					elm.setAttribute('src', dataurl);
+					imglib[url].dataurl = dataurl;
+					this._preproc_image_hndl(elms, idx + 1, continue_cb);
+				}).bind(this),
+				this._preproc_image_hndl.bind(this, elms, idx + 1, continue_cb));
+				elm.setAttribute('old_src', elm.src);
+			}
+		} else {
+			if(continue_cb) continue_cb();
+		}
+	};
+	prxy.prototype._preload_script = function(continue_cb, elm, url, html) {
 		var scripts = $px('script[src]', html);
 		this._preload_script_hndl(scripts, 0, continue_cb.bind(this, elm, url, html));
+	};
+	prxy.prototype._preload_script_set_error = function(url, cb) {
+		var script = $px('script[src^="' + url + '"]');
+		script.error(cb);
+		return setTimeout(function() {
+			/* remove() can't cancel pending request of script,
+			   but disable all events handle of it. */
+			script.remove();
+			console.log('Script timeout.', script[0]);
+			if(cb) cb();
+		}, 5000);
 	};
 	prxy.prototype._preload_script_hndl = function(scripts, idx, continue_cb) {
 		if(idx < scripts.length) {
@@ -265,14 +392,19 @@ var prxy = (function() {
 					//async: false,
 					//global: false,
 					success: (function(d) {
+						clearTimeout(to);
 						this._preload_script_hndl(scripts, idx + 1, continue_cb);
 					}).bind(this),
 				});
 				/* ajax script doesn't support error handle */
-				$px('script[src^="' + url + '"]').error((function(e) {
+				var to = this._preload_script_set_error(url, (function(e) {
+					clearTimeout(to);
 					this._script_reload(script[0]);
 					this._preload_script_hndl(scripts, idx + 1, continue_cb);
 				}).bind(this));
+			} else {
+				console.log('script error, continue.', script[0]);
+				this._preload_script_hndl(scripts, idx + 1, continue_cb);
 			}
 		} else {
 			$px('script[async]').remove();
@@ -336,10 +468,24 @@ var prxy = (function() {
 		//console.log(this);
 		var _this = e.data.this;
 		var elm = this;
-		_this._get_image(elm.src, function(url, dataurl) {
+		var imglib = _this._img_lib
+		if(elm.src in imglib) {
 			elm.setAttribute('old_src', elm.src);
-			elm.setAttribute('src', dataurl);
-		});
+			if(imglib[elm.src].dataurl) {
+				elm.setAttribute('src', imglib[elm.src].dataurl);
+			} else {
+				imglib[elm.src].req.push(elm);
+			}
+		} else {
+			imglib[elm.src] = {};
+			imglib[elm.src].req = [elm];
+			_this._get_image(elm.src, function(url, dataurl) {
+				for(var i = 0; i < imglib[url].req.length; i++) {
+					imglib[url].req[i].setAttribute('src', dataurl);
+				}
+				imglib[url].dataurl = dataurl;
+			});
+		}
 	};
 	prxy.prototype._a_reload = function() {
 		//console.log(this, this.protocol);
@@ -348,7 +494,7 @@ var prxy = (function() {
 		}
 	};
 	prxy.prototype.load = function(elm, url) {
-		this._get_html(url, this._preload_imgur.bind(this, this._preload_script.bind(this, this._set_elm_html, elm)));
+		this._get_html(url, this._preload_imgur.bind(this, this._preproc_html.bind(this, this._set_elm_html, elm)));
 	};
 	return prxy;
 })();
@@ -357,6 +503,7 @@ var prxy_menu = (function() {
 	function prxy_menu() {
 		this.history = [];
 		this.history_idx = 0;
+		this.flag_preload = false;
 	}
 	prxy_menu.prototype.current_url = function() {
 		if(this.history_idx) {
@@ -386,12 +533,13 @@ var prxy_menu = (function() {
 	prxy_menu.prototype.reload = function() {
 		this.draw_menu();
 		if(this.history_idx) {
-			new prxy().load(document, this.current_url());
+			new prxy(this.flag_preload).load(document, this.current_url());
 		} else {
 			document.close();
 		}
 	};
 	prxy_menu.prototype.load = function(url) {
+		if(!/:\/\//.exec(url)) url = 'http://' + url;
 		if(url != this.current_url()) {
 			this.push_url(url);
 			this.reload();
@@ -419,9 +567,8 @@ var prxy_menu = (function() {
 				position: 'absolute',
 				left: '0px',
 				top: '0px',
-				'z-index': '10000',
+				'z-index': '19999999999',
 				background: '#F0F0F0',
-				'padding-right': '5px',
 			}).append([
 				(this.history_idx > 1)?
 				$px('<a>').attr('href', 'javascript:_PXY.back();').text('Back'):
@@ -430,8 +577,14 @@ var prxy_menu = (function() {
 				$px('<a>').attr('href', 'javascript:_PXY.prev();').text('Prev'):
 				$px('<span>').text('Prev'),
 				$px('<a>').attr('id', '_pxy_go').attr('href', "javascript:_PXY.load($px('#_pxy_url').prop('value'));").text('Go'),
-				$px('<input>').attr('id', '_pxy_url').attr('value', this.current_url()).attr('title', this.current_url())
-		]));
+				$px('<input>').attr('id', '_pxy_url').attr('value', this.current_url()).attr('title', this.current_url()),
+				$px('<input>').attr('type', 'checkbox').attr('id', '_pxy_preload').prop('checked', this.flag_preload).change((function() {
+					this.flag_preload = $px('#_pxy_preload').prop('checked');
+				}).bind(this))
+			])
+		).find('div span, a').css({
+			'padding-right': '5px',
+		});
 	};
 	return prxy_menu;
 })();
