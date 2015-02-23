@@ -180,6 +180,7 @@ var prxy = (function() {
 		this._flag_force_replace = force_replace;
 		this._flag_imgur_timeout = false;
 		this._img_lib = {};
+		this.done_hook = function(){};
 	}
 	prxy.prototype._encode_url = function(url) {
 		var rslt = ''
@@ -446,6 +447,7 @@ var prxy = (function() {
 		$px('body', elm).append($px('body', html).children());
 		//$px('script[async]').remove();
 		elm.close();
+		if(this.done_hook) this.done_hook();
 	};
 	prxy.prototype._link_reload = function(e) {
 		var _this = e.data.this;
@@ -534,7 +536,10 @@ var prxy_menu = (function() {
 	prxy_menu.prototype.reload = function() {
 		this.draw_menu();
 		if(this.history_idx) {
-			new prxy(this.flag_preload).load(document, this.current_url());
+			this.menu_busy(true);
+			var p = new prxy(this.flag_preload);
+			p.done_hook = this.menu_busy.bind(this, false);
+			p.load(document, this.current_url());
 		} else {
 			document.close();
 		}
@@ -556,6 +561,13 @@ var prxy_menu = (function() {
 	prxy_menu.prototype.prev = function() {
 		if(this.prev_url()) {
 			this.reload();
+		}
+	};
+	prxy_menu.prototype.menu_busy = function(b) {
+		if(b) {
+			$px('#_pxy_idle').text('bussy').css('color', 'red');
+		} else {
+			$px('#_pxy_idle').text('idle').css('color', 'green');
 		}
 	};
 	prxy_menu.prototype.draw_menu = function() {
@@ -581,7 +593,8 @@ var prxy_menu = (function() {
 				$px('<input>').attr('id', '_pxy_url').attr('value', this.current_url()).attr('title', this.current_url()),
 				$px('<input>').attr('type', 'checkbox').attr('id', '_pxy_preload').prop('checked', this.flag_preload).change((function() {
 					this.flag_preload = $px('#_pxy_preload').prop('checked');
-				}).bind(this))
+				}).bind(this)),
+				$px('<b>').text('idle').attr('id', '_pxy_idle').css('color', 'green'),
 			])
 		).find('div span, a').css({
 			'padding-right': '5px',
