@@ -419,7 +419,7 @@ var prxy_menu = (function() {
 				position: 'absolute',
 				left: '0px',
 				top: '0px',
-				'z-index': '100',
+				'z-index': '10000',
 				background: '#F0F0F0',
 				'padding-right': '5px',
 			}).append([
