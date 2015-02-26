@@ -577,7 +577,7 @@ var prxy_menu = (function() {
 		$px('body').append(
 			$px('<div>').css({
 				display: 'block',
-				position: 'absolute',
+				position: 'fixed',
 				left: '0px',
 				top: '0px',
 				'z-index': '19999999999',
